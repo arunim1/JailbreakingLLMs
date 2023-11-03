@@ -117,7 +117,7 @@ if __name__ == '__main__':
         "--judge-model",
         default="gpt-3.5-turbo",
         help="Name of judge model.",
-        choices=["gpt-3.5-turbo", "gpt-4","no-judge"]
+        choices=["gpt-3.5-turbo", "gpt-4","no-judge", "embedding-judge"]
     )
     parser.add_argument(
         "--judge-max-n-tokens",
