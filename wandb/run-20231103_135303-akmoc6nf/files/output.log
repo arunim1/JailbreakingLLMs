@@ -1,0 +1,54 @@
+====================================
+Iteration: 1
+====================================
+<class 'openai.error.Timeout'> Request timed out: HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out. (read timeout=20)
+<class 'openai.error.Timeout'> Request timed out: HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out. (read timeout=20)
+<class 'openai.error.Timeout'> Request timed out: HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out. (read timeout=20)
+<class 'openai.error.Timeout'> Request timed out: HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out. (read timeout=20)
+Traceback (most recent call last):
+  File "/project/main.py", line 188, in <module>
+    main(args)
+  File "/project/main.py", line 38, in main
+    extracted_attack_list = attackLM.get_attack(convs_list, processed_response_list)
+  File "/project/conversers.py", line 93, in get_attack
+    outputs_list = self.model.batched_generate(full_prompts_subset,
+  File "/project/language_models.py", line 126, in batched_generate
+    return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+  File "/project/language_models.py", line 126, in <listcomp>
+    return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+  File "/project/language_models.py", line 104, in generate
+    response = openai.ChatCompletion.create(
+  File "/opt/conda/lib/python3.10/site-packages/openai/api_resources/chat_completion.py", line 25, in create
+    return super().create(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/openai/api_resources/abstract/engine_api_resource.py", line 155, in create
+    response, _, api_key = requestor.request(
+  File "/opt/conda/lib/python3.10/site-packages/openai/api_requestor.py", line 289, in request
+    result = self.request_raw(
+  File "/opt/conda/lib/python3.10/site-packages/openai/api_requestor.py", line 606, in request_raw
+    result = _thread_context.session.request(
+  File "/opt/conda/lib/python3.10/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/requests/adapters.py", line 486, in send
+    resp = conn.urlopen(
+  File "/opt/conda/lib/python3.10/site-packages/urllib3/connectionpool.py", line 714, in urlopen
+    httplib_response = self._make_request(
+  File "/opt/conda/lib/python3.10/site-packages/urllib3/connectionpool.py", line 466, in _make_request
+    six.raise_from(e, None)
+  File "<string>", line 3, in raise_from
+  File "/opt/conda/lib/python3.10/site-packages/urllib3/connectionpool.py", line 461, in _make_request
+    httplib_response = conn.getresponse()
+  File "/opt/conda/lib/python3.10/http/client.py", line 1375, in getresponse
+    response.begin()
+  File "/opt/conda/lib/python3.10/http/client.py", line 318, in begin
+    version, status, reason = self._read_status()
+  File "/opt/conda/lib/python3.10/http/client.py", line 279, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+  File "/opt/conda/lib/python3.10/socket.py", line 705, in readinto
+    return self._sock.recv_into(b)
+  File "/opt/conda/lib/python3.10/ssl.py", line 1307, in recv_into
+    return self.read(nbytes, buffer)
+  File "/opt/conda/lib/python3.10/ssl.py", line 1163, in read
+    return self._sslobj.read(len, buffer)
+KeyboardInterrupt

@@ -5,7 +5,7 @@ FROM pytorch/pytorch:latest
 WORKDIR /project
 
 # Install git
-RUN apt-get update && apt-get install -y git
+RUN apt-get update 
 
 RUN pip3 install fschat==0.2.23
 
