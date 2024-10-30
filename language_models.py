@@ -1,12 +1,23 @@
+import asyncio
 import openai
 import anthropic
+import google.generativeai as palm
+
+from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
+
 import os
 import time
 import torch
 import gc
 from typing import Dict, List
-import google.generativeai as palm
+from dotenv import load_dotenv
 
+
+load_dotenv()
+
+OPENAI_CONCURRENCY = 20
+ANTHROPIC_CONCURRENCY = 20
 
 class LanguageModel():
     def __init__(self, model_name):
@@ -30,6 +41,7 @@ class HuggingFace(LanguageModel):
                         max_n_tokens: int, 
                         temperature: float,
                         top_p: float = 1.0,):
+        raise NotImplementedError
         inputs = self.tokenizer(full_prompts_list, return_tensors='pt', padding=True)
         inputs = {k: v.to(self.model.device.index) for k, v in inputs.items()}
     
@@ -83,47 +95,57 @@ class GPT(LanguageModel):
     API_QUERY_SLEEP = 0.5
     API_MAX_RETRY = 5
     API_TIMEOUT = 20
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+    
+    def __init__(self, model_name):
+        super().__init__(model_name)
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Add semaphore for concurrency control
+        self.semaphore = asyncio.Semaphore(OPENAI_CONCURRENCY)
 
-    def generate(self, conv: List[Dict], 
+    async def generate(self, conv: List[Dict], 
                 max_n_tokens: int, 
                 temperature: float,
                 top_p: float):
-        '''
-        Args:
-            conv: List of dictionaries, OpenAI API format
-            max_n_tokens: int, max number of tokens to generate
-            temperature: float, temperature for sampling
-            top_p: float, top p for sampling
-        Returns:
-            str: generated response
-        '''
-        output = self.API_ERROR_OUTPUT
-        for _ in range(self.API_MAX_RETRY):
-            try:
-                response = openai.ChatCompletion.create(
-                            model = self.model_name,
-                            messages = conv,
-                            max_tokens = max_n_tokens,
-                            temperature = temperature,
-                            top_p = top_p,
-                            request_timeout = self.API_TIMEOUT,
-                            )
-                output = response["choices"][0]["message"]["content"]
-                break
-            except openai.error.OpenAIError as e:
-                print(type(e), e)
-                time.sleep(self.API_RETRY_SLEEP)
-        
-            time.sleep(self.API_QUERY_SLEEP)
-        return output 
+        # ... existing code ...
+        if "o1" in self.model_name:
+            system_prompt = conv[0]["content"] # assume that the first message is the system prompt
+            conv[1]["content"] = f"<system>{system_prompt}</system>\n{conv[1]['content']}"
+            conv = conv[1:]
+        async with self.semaphore:  # Add semaphore context manager
+            output = self.API_ERROR_OUTPUT
+            for _ in range(self.API_MAX_RETRY):
+                try:
+                    if "o1" in self.model_name:
+                        response = await self.client.chat.completions.create(
+                                    model=self.model_name,
+                                    messages=conv,
+                                    timeout=self.API_TIMEOUT,
+                                    )
+                    else:
+                        response = await self.client.chat.completions.create(
+                                    model=self.model_name,
+                                    messages=conv,
+                                    max_tokens=max_n_tokens,
+                                    temperature=temperature,
+                                    top_p=top_p,
+                                    timeout=self.API_TIMEOUT,
+                                    )
+                    output = response.choices[0].message.content
+                    break
+                except Exception as e:
+                    print(type(e), e)
+                    await asyncio.sleep(self.API_RETRY_SLEEP)
+            
+                await asyncio.sleep(self.API_QUERY_SLEEP)
+            return output 
     
-    def batched_generate(self, 
+    async def batched_generate(self, 
                         convs_list: List[List[Dict]],
                         max_n_tokens: int, 
                         temperature: float,
                         top_p: float = 1.0,):
-        return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+        tasks = [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+        return await asyncio.gather(*tasks)
 
 class Claude():
     API_RETRY_SLEEP = 10
@@ -135,48 +157,44 @@ class Claude():
    
     def __init__(self, model_name) -> None:
         self.model_name = model_name
-        self.model= anthropic.Anthropic(
-            api_key=self.API_KEY,
-            )
+        self.client = AsyncAnthropic(api_key=self.API_KEY)
+        self.semaphore = asyncio.Semaphore(2)
 
-    def generate(self, conv: List, 
+    async def generate(self, conv: List, 
                 max_n_tokens: int, 
                 temperature: float,
                 top_p: float):
-        '''
-        Args:
-            conv: List of conversations 
-            max_n_tokens: int, max number of tokens to generate
-            temperature: float, temperature for sampling
-            top_p: float, top p for sampling
-        Returns:
-            str: generated response
-        '''
-        output = self.API_ERROR_OUTPUT
-        for _ in range(self.API_MAX_RETRY):
-            try:
-                completion = self.model.completions.create(
-                    model=self.model_name,
-                    max_tokens_to_sample=max_n_tokens,
-                    prompt=conv,
-                    temperature=temperature,
-                    top_p=top_p
-                )
-                output = completion.completion
-                break
-            except anthropic.APIError as e:
-                print(type(e), e)
-                time.sleep(self.API_RETRY_SLEEP)
-        
-            time.sleep(self.API_QUERY_SLEEP)
-        return output
+        async with self.semaphore:
+            output = self.API_ERROR_OUTPUT
+            for _ in range(self.API_MAX_RETRY):
+                try:
+                    response = await self.client.messages.create(
+                        model=self.model_name,
+                        max_tokens=max_n_tokens,
+                        messages=[
+                            {**msg, 'content': msg['content'].strip()} 
+                            for msg in conv[1:]
+                        ],
+                        temperature=temperature,
+                        top_p=top_p,
+                        system=conv[0]["content"]
+                    )
+                    output = response.content[0].text
+                    break
+                except anthropic.APIError as e:
+                    print("HERE", type(e), e, f"\n{conv}")
+                    await asyncio.sleep(self.API_RETRY_SLEEP)
+            
+                await asyncio.sleep(self.API_QUERY_SLEEP)
+            return output
     
-    def batched_generate(self, 
+    async def batched_generate(self, 
                         convs_list: List[List[Dict]],
                         max_n_tokens: int, 
                         temperature: float,
                         top_p: float = 1.0,):
-        return [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+        tasks = [self.generate(conv, max_n_tokens, temperature, top_p) for conv in convs_list]
+        return await asyncio.gather(*tasks)
         
 class PaLM():
     API_RETRY_SLEEP = 10
@@ -204,6 +222,7 @@ class PaLM():
         Returns:
             str: generated response
         '''
+        raise NotImplementedError
         output = self.API_ERROR_OUTPUT
         for _ in range(self.API_MAX_RETRY):
             try:

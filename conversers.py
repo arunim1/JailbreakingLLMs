@@ -2,7 +2,7 @@
 import common
 from language_models import GPT, Claude, PaLM, HuggingFace
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# from transformers import AutoModelForCausalLM, AutoTokenizer
 from config import VICUNA_PATH, LLAMA_PATH, ATTACK_TEMP, TARGET_TEMP, ATTACK_TOP_P, TARGET_TOP_P   
 
 def load_attack_and_target_models(args):
@@ -48,7 +48,7 @@ class AttackLM():
         if "vicuna" in model_name or "llama" in model_name:
             self.model.extend_eos_tokens()
 
-    def get_attack(self, convs_list, prompts_list):
+    async def get_attack(self, convs_list, prompts_list):
         """
         Generates responses for a batch of conversations and prompts using a language model. 
         Only valid outputs in proper JSON format are returned. If an output isn't generated 
@@ -79,7 +79,9 @@ class AttackLM():
         for conv, prompt in zip(convs_list, prompts_list):
             conv.append_message(conv.roles[0], prompt)
             # Get prompts
-            if "gpt" in self.model_name:
+            if "gpt" in self.model_name or "o1" in self.model_name:
+                full_prompts.append(conv.to_openai_api_messages())
+            elif "claude" in self.model_name:
                 full_prompts.append(conv.to_openai_api_messages())
             else:
                 conv.append_message(conv.roles[1], init_message)
@@ -90,7 +92,7 @@ class AttackLM():
             full_prompts_subset = [full_prompts[i] for i in indices_to_regenerate]
 
             # Generate outputs 
-            outputs_list = self.model.batched_generate(full_prompts_subset,
+            outputs_list = await self.model.batched_generate(full_prompts_subset,
                                                         max_n_tokens = self.max_n_tokens,  
                                                         temperature = self.temperature,
                                                         top_p = self.top_p
@@ -100,7 +102,7 @@ class AttackLM():
             new_indices_to_regenerate = []
             for i, full_output in enumerate(outputs_list):
                 orig_index = indices_to_regenerate[i]
-                if "gpt" not in self.model_name:
+                if "gpt" not in self.model_name and "o1" not in self.model_name and "claude" not in self.model_name:
                     full_output = init_message + full_output
 
                 attack_dict, json_str = common.extract_json(full_output)
@@ -145,14 +147,16 @@ class TargetLM():
             self.model = preloaded_model
             _, self.template = get_model_path_and_template(model_name)
 
-    def get_response(self, prompts_list):
+    async def get_response(self, prompts_list):
         batchsize = len(prompts_list)
         convs_list = [common.conv_template(self.template) for _ in range(batchsize)]
         full_prompts = []
         for conv, prompt in zip(convs_list, prompts_list):
             conv.append_message(conv.roles[0], prompt)
-            if "gpt" in self.model_name:
+            if "gpt" in self.model_name or "o1" in self.model_name:
                 # Openai does not have separators
+                full_prompts.append(conv.to_openai_api_messages())
+            elif "claude" in self.model_name:
                 full_prompts.append(conv.to_openai_api_messages())
             elif "palm" in self.model_name:
                 full_prompts.append(conv.messages[-1][1])
@@ -160,7 +164,7 @@ class TargetLM():
                 conv.append_message(conv.roles[1], None) 
                 full_prompts.append(conv.get_prompt())
         
-        outputs_list = self.model.batched_generate(full_prompts, 
+        outputs_list = await self.model.batched_generate(full_prompts, 
                                                         max_n_tokens = self.max_n_tokens,  
                                                         temperature = self.temperature,
                                                         top_p = self.top_p
@@ -171,13 +175,15 @@ class TargetLM():
 
 def load_indiv_model(model_name, device=None):
     model_path, template = get_model_path_and_template(model_name)
-    if model_name in ["gpt-3.5-turbo", "gpt-4"]:
+    if model_name.startswith("gpt") or model_name.startswith("o1"):
         lm = GPT(model_name)
-    elif model_name in ["claude-2", "claude-instant-1"]:
+    elif model_name.startswith("claude"):
         lm = Claude(model_name)
     elif model_name in ["palm-2"]:
+        raise NotImplementedError
         lm = PaLM(model_name)
     else:
+        raise NotImplementedError
         model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
                 torch_dtype=torch.float16,
@@ -202,39 +208,38 @@ def load_indiv_model(model_name, device=None):
     return lm, template
 
 def get_model_path_and_template(model_name):
-    full_model_dict={
-        "gpt-4":{
-            "path":"gpt-4",
-            "template":"gpt-4"
-        },
-        "gpt-3.5-turbo": {
-            "path":"gpt-3.5-turbo",
-            "template":"gpt-3.5-turbo"
-        },
-        "vicuna":{
-            "path":VICUNA_PATH,
-            "template":"vicuna_v1.1"
-        },
-        "llama-2":{
-            "path":LLAMA_PATH,
-            "template":"llama-2"
-        },
-        "claude-instant-1":{
-            "path":"claude-instant-1",
-            "template":"claude-instant-1"
-        },
-        "claude-2":{
-            "path":"claude-2",
-            "template":"claude-2"
-        },
-        "palm-2":{
-            "path":"palm-2",
-            "template":"palm-2"
-        }
-    }
-    path, template = full_model_dict[model_name]["path"], full_model_dict[model_name]["template"]
-    return path, template
-
-
+    # full_model_dict={
+    #     "gpt-4":{
+    #         "path":"gpt-4",
+    #         "template":"gpt-4"
+    #     },
+    #     "gpt-3.5-turbo": {
+    #         "path":"gpt-3.5-turbo",
+    #         "template":"gpt-3.5-turbo"
+    #     },
+    #     "vicuna":{
+    #         "path":VICUNA_PATH,
+    #         "template":"vicuna_v1.1"
+    #     },
+    #     "llama-2":{
+    #         "path":LLAMA_PATH,
+    #         "template":"llama-2"
+    #     },
+    #     "claude-instant-1":{
+    #         "path":"claude-instant-1",
+    #         "template":"claude-instant-1"
+    #     },
+    #     "claude-2":{
+    #         "path":"claude-2",
+    #         "template":"claude-2"
+    #     },
+    #     "palm-2":{
+    #         "path":"palm-2",
+    #         "template":"palm-2"
+    #     }
+    # }
+    # path, template = full_model_dict[model_name]["path"], full_model_dict[model_name]["template"]
+    # return path, template
+    return model_name, model_name
 
     
