@@ -1,3 +1,9 @@
+### Notes by Arunim: 
+This version is updated to a) work asynchronously and b) use updated API formats and c) with an outer loop to run the full eval. 
+
+
+# **Original README:**
+
 # **Jailbreaking Black Box Large Language Models in Twenty Queries**
 <div align="center">
 
